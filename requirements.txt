@@ -1,0 +1,7 @@
+# Streamlit frontend requirements
+streamlit
+requests
+python-dotenv
+pydantic
+streamlit-agraph
+streamlit-audiorec
