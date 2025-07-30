@@ -425,6 +425,20 @@ class RealTimeVoiceInterface:
             
         logger.info(f"RealTimeVoiceInterface initialized with Groq API key: {'*' * 10 if groq_api_key else 'None'}")
     
+    def _initialize_audio_processor(self):
+        """Initialize audio processor - called when needed"""
+        if self.audio_processor is None:
+            self.audio_processor = RealTimeAudioProcessor(
+                groq_api_key=self.groq_api_key,
+                on_transcription=self.on_transcription_received
+            )
+            
+            # Test Groq API key
+            if self.groq_api_key:
+                api_test_result = self.audio_processor.test_groq_api()
+                if not api_test_result:
+                    st.error("❌ Groq API key test failed - check your API key")
+    
     def on_transcription_received(self, transcription: str):
         """Callback when transcription is received - put in queue for main thread processing"""
         logger.info(f"on_transcription_received called with: {transcription}")
@@ -615,221 +629,188 @@ class RealTimeVoiceInterface:
         if new_transcriptions_processed:
             st.rerun()
         
-        # Initialize audio processor
+        # Initialize audio processor if not already done
         if self.audio_processor is None:
-            self.audio_processor = RealTimeAudioProcessor(
-                groq_api_key=self.groq_api_key,
-                on_transcription=self.on_transcription_received
-            )
-            
-            # Test Groq API key
-            if self.groq_api_key:
-                api_test_result = self.audio_processor.test_groq_api()
-                if api_test_result:
-                    st.success("✅ Groq API key is valid")
-                else:
-                    st.error("❌ Groq API key test failed - check your API key")
+            self._initialize_audio_processor()
         
         # Debug section
-        with st.expander("🔧 Debug Options"):
-            if st.button("Test Groq API"):
-                if self.audio_processor:
-                    api_test_result = self.audio_processor.test_groq_api()
-                    if api_test_result:
-                        st.success("✅ Groq API test successful")
-                    else:
-                        st.error("❌ Groq API test failed")
-                else:
-                    st.error("Audio processor not initialized")
+        # with st.expander("🔧 Debug Options"):
+        #     if st.button("Test Groq API"):
+        #         if self.audio_processor:
+        #             api_test_result = self.audio_processor.test_groq_api()
+        #             if api_test_result:
+        #                 st.success("✅ Groq API test successful")
+        #             else:
+        #                 st.error("❌ Groq API test failed")
+        #         else:
+        #             st.error("Audio processor not initialized")
             
-            if st.button("Show Audio Debug Info"):
-                if self.audio_processor:
-                    st.write(f"Recording: {self.audio_processor.is_recording}")
-                    st.write(f"Frames processed: {self.audio_processor.frame_count}")
-                    st.write(f"Audio level: {self.audio_processor.last_audio_level:.4f}")
-                    st.write(f"Audio frames buffer size: {len(self.audio_processor.audio_frames)}")
-                    st.write(f"Queue size: {self.audio_processor.audio_buffer.qsize()}")
-                    st.write(f"Worker running: {self.audio_processor.worker_running}")
-                    if self.audio_processor.transcription_thread:
-                        st.write(f"Worker alive: {self.audio_processor.transcription_thread.is_alive()}")
+        #     if st.button("Show Audio Debug Info"):
+        #         if self.audio_processor:
+        #             st.write(f"Recording: {self.audio_processor.is_recording}")
+        #             st.write(f"Frames processed: {self.audio_processor.frame_count}")
+        #             st.write(f"Audio level: {self.audio_processor.last_audio_level:.4f}")
+        #             st.write(f"Audio frames buffer size: {len(self.audio_processor.audio_frames)}")
+        #             st.write(f"Queue size: {self.audio_processor.audio_buffer.qsize()}")
+        #             st.write(f"Worker running: {self.audio_processor.worker_running}")
+        #             if self.audio_processor.transcription_thread:
+        #                 st.write(f"Worker alive: {self.audio_processor.transcription_thread.is_alive()}")
                     
-                    # Volume-based detection info
-                    if hasattr(self.audio_processor, 'volume_history'):
-                        st.write(f"Volume history size: {len(self.audio_processor.volume_history)}")
-                        if len(self.audio_processor.volume_history) >= 20:
-                            recent_avg = np.mean(self.audio_processor.volume_history[-20:])
-                            adaptive_threshold = recent_avg * self.audio_processor.adaptive_threshold_multiplier
-                            adaptive_threshold = max(adaptive_threshold, 0.005)
-                            st.write(f"Recent volume average: {recent_avg:.4f}")
-                            st.write(f"Adaptive threshold: {adaptive_threshold:.4f}")
-                            st.write(f"Speech detected: {self.audio_processor.speech_detected}")
-                            st.write(f"Consecutive silence frames: {self.audio_processor.consecutive_silence_frames}")
-                else:
-                    st.error("Audio processor not initialized")
+        #             # Volume-based detection info
+        #             if hasattr(self.audio_processor, 'volume_history'):
+        #                 st.write(f"Volume history size: {len(self.audio_processor.volume_history)}")
+        #                 if len(self.audio_processor.volume_history) >= 20:
+        #                     recent_avg = np.mean(self.audio_processor.volume_history[-20:])
+        #                     adaptive_threshold = recent_avg * self.audio_processor.adaptive_threshold_multiplier
+        #                     adaptive_threshold = max(adaptive_threshold, 0.005)
+        #                     st.write(f"Recent volume average: {recent_avg:.4f}")
+        #                     st.write(f"Adaptive threshold: {adaptive_threshold:.4f}")
+        #                     st.write(f"Speech detected: {self.audio_processor.speech_detected}")
+        #                     st.write(f"Consecutive silence frames: {self.audio_processor.consecutive_silence_frames}")
+        #         else:
+        #             st.error("Audio processor not initialized")
             
-            if st.button("Test Auto-Transcription"):
-                if self.audio_processor and self.groq_api_key:
-                    # Generate a simple test audio (sine wave)
-                    import numpy as np
-                    import io
-                    import wave
+        #     if st.button("Test Auto-Transcription"):
+        #         if self.audio_processor and self.groq_api_key:
+        #             # Generate a simple test audio (sine wave)
+        #             import numpy as np
+        #             import io
+        #             import wave
                     
-                    # Create a simple sine wave audio
-                    sample_rate = 16000
-                    duration = 2  # 2 seconds
-                    frequency = 440  # A4 note
-                    t = np.linspace(0, duration, int(sample_rate * duration))
-                    audio_data = np.sin(2 * np.pi * frequency * t) * 0.3
+        #             # Create a simple sine wave audio
+        #             sample_rate = 16000
+        #             duration = 2  # 2 seconds
+        #             frequency = 440  # A4 note
+        #             t = np.linspace(0, duration, int(sample_rate * duration))
+        #             audio_data = np.sin(2 * np.pi * frequency * t) * 0.3
                     
-                    # Convert to int16
-                    audio_int16 = (audio_data * 32767).astype(np.int16)
+        #             # Convert to int16
+        #             audio_int16 = (audio_data * 32767).astype(np.int16)
                     
-                    # Create WAV bytes
-                    wav_buffer = io.BytesIO()
-                    with wave.open(wav_buffer, 'wb') as wav_file:
-                        wav_file.setnchannels(1)
-                        wav_file.setsampwidth(2)
-                        wav_file.setframerate(sample_rate)
-                        wav_file.writeframes(audio_int16.tobytes())
+        #             # Create WAV bytes
+        #             wav_buffer = io.BytesIO()
+        #             with wave.open(wav_buffer, 'wb') as wav_file:
+        #                 wav_file.setnchannels(1)
+        #                 wav_file.setsampwidth(2)
+        #                 wav_file.setframerate(sample_rate)
+        #                 wav_file.writeframes(audio_int16.tobytes())
                     
-                    wav_buffer.seek(0)
-                    wav_bytes = wav_buffer.read()
+        #             wav_buffer.seek(0)
+        #             wav_bytes = wav_buffer.read()
                     
-                    st.info("Testing transcription with generated audio...")
-                    transcription = self.audio_processor._transcribe_with_groq(wav_bytes)
-                    if transcription:
-                        st.success(f"Test transcription successful: {transcription}")
-                    else:
-                        st.error("Test transcription failed")
-                else:
-                    st.error("Audio processor or API key not available")
+        #             st.info("Testing transcription with generated audio...")
+        #             transcription = self.audio_processor._transcribe_with_groq(wav_bytes)
+        #             if transcription:
+        #                 st.success(f"Test transcription successful: {transcription}")
+        #             else:
+        #                 st.error("Test transcription failed")
+        #         else:
+        #             st.error("Audio processor or API key not available")
             
-            if st.button("Test Silence Detection"):
-                if self.audio_processor and self.audio_processor.is_recording:
-                    # Simulate the silence detection logic
-                    if len(self.audio_processor.audio_frames) > 0:
-                        min_audio_length = int(self.audio_processor.sample_rate * 1.0)
-                        if len(self.audio_processor.audio_frames) >= min_audio_length:
-                            audio_array_float = np.array(self.audio_processor.audio_frames, dtype=np.float32)
-                            audio_energy = np.mean(np.abs(audio_array_float))
+        #     if st.button("Test Silence Detection"):
+        #         if self.audio_processor and self.audio_processor.is_recording:
+        #             # Simulate the silence detection logic
+        #             if len(self.audio_processor.audio_frames) > 0:
+        #                 min_audio_length = int(self.audio_processor.sample_rate * 1.0)
+        #                 if len(self.audio_processor.audio_frames) >= min_audio_length:
+        #                     audio_array_float = np.array(self.audio_processor.audio_frames, dtype=np.float32)
+        #                     audio_energy = np.mean(np.abs(audio_array_float))
                             
-                            st.info(f"Audio frames: {len(self.audio_processor.audio_frames)}")
-                            st.info(f"Audio energy: {audio_energy:.4f}")
-                            st.info(f"Silence threshold: {self.audio_processor.silence_threshold}")
+        #                     st.info(f"Audio frames: {len(self.audio_processor.audio_frames)}")
+        #                     st.info(f"Audio energy: {audio_energy:.4f}")
+        #                     st.info(f"Silence threshold: {self.audio_processor.silence_threshold}")
                             
-                            if audio_energy > self.audio_processor.silence_threshold:
-                                st.success("✅ Audio has sufficient energy for transcription")
-                                # Manually trigger transcription
-                                chunk = (np.array(self.audio_processor.audio_frames, dtype=np.float32) * 32767).astype(np.int16)
-                                self.audio_processor.audio_buffer.put(chunk)
-                                self.audio_processor.audio_frames = []
-                                st.success("✅ Manually triggered transcription")
-                            else:
-                                st.warning("⚠️ Audio energy too low for transcription")
-                        else:
-                            st.warning(f"⚠️ Audio too short ({len(self.audio_processor.audio_frames)} samples)")
-                    else:
-                        st.warning("⚠️ No audio frames captured yet")
-                else:
-                    st.error("Audio processor not recording")
+        #                     if audio_energy > self.audio_processor.silence_threshold:
+        #                         st.success("✅ Audio has sufficient energy for transcription")
+        #                         # Manually trigger transcription
+        #                         chunk = (np.array(self.audio_processor.audio_frames, dtype=np.float32) * 32767).astype(np.int16)
+        #                         self.audio_processor.audio_buffer.put(chunk)
+        #                         self.audio_processor.audio_frames = []
+        #                         st.success("✅ Manually triggered transcription")
+        #                     else:
+        #                         st.warning("⚠️ Audio energy too low for transcription")
+        #                 else:
+        #                     st.warning(f"⚠️ Audio too short ({len(self.audio_processor.audio_frames)} samples)")
+        #             else:
+        #                 st.warning("⚠️ No audio frames captured yet")
+        #         else:
+        #             st.error("Audio processor not recording")
             
-            if st.button("Force Transcription Now"):
-                if self.audio_processor and self.audio_processor.is_recording:
-                    if len(self.audio_processor.audio_frames) > 0:
-                        st.info(f"Forcing transcription with {len(self.audio_processor.audio_frames)} audio samples...")
-                        # Force transcription regardless of energy
-                        chunk = (np.array(self.audio_processor.audio_frames, dtype=np.float32) * 32767).astype(np.int16)
-                        self.audio_processor.audio_buffer.put(chunk)
-                        self.audio_processor.audio_frames = []
-                        st.success("✅ Forced transcription triggered")
-                    else:
-                        st.warning("⚠️ No audio frames to transcribe")
-                else:
-                    st.error("Audio processor not recording")
+        #     if st.button("Force Transcription Now"):
+        #         if self.audio_processor and self.audio_processor.is_recording:
+        #             if len(self.audio_processor.audio_frames) > 0:
+        #                 st.info(f"Forcing transcription with {len(self.audio_processor.audio_frames)} audio samples...")
+        #                 # Force transcription regardless of energy
+        #                 chunk = (np.array(self.audio_processor.audio_frames, dtype=np.float32) * 32767).astype(np.int16)
+        #                 self.audio_processor.audio_buffer.put(chunk)
+        #                 self.audio_processor.audio_frames = []
+        #                 st.success("✅ Forced transcription triggered")
+        #             else:
+        #                 st.warning("⚠️ No audio frames to transcribe")
+        #         else:
+        #             st.error("Audio processor not recording")
             
-            if st.button("Test Volume-Based Detection"):
-                if self.audio_processor and self.audio_processor.is_recording:
-                    if len(self.audio_processor.volume_history) >= 20:
-                        recent_avg = np.mean(self.audio_processor.volume_history[-20:])
-                        adaptive_threshold = recent_avg * self.audio_processor.adaptive_threshold_multiplier
-                        adaptive_threshold = max(adaptive_threshold, 0.005)
+        #     if st.button("Test Volume-Based Detection"):
+        #         if self.audio_processor and self.audio_processor.is_recording:
+        #             if len(self.audio_processor.volume_history) >= 20:
+        #                 recent_avg = np.mean(self.audio_processor.volume_history[-20:])
+        #                 adaptive_threshold = recent_avg * self.audio_processor.adaptive_threshold_multiplier
+        #                 adaptive_threshold = max(adaptive_threshold, 0.005)
                         
-                        st.info(f"Current audio level: {self.audio_processor.last_audio_level:.4f}")
-                        st.info(f"Adaptive threshold: {adaptive_threshold:.4f}")
-                        st.info(f"Speech detected: {self.audio_processor.speech_detected}")
-                        st.info(f"Consecutive silence frames: {self.audio_processor.consecutive_silence_frames}")
+        #                 st.info(f"Current audio level: {self.audio_processor.last_audio_level:.4f}")
+        #                 st.info(f"Adaptive threshold: {adaptive_threshold:.4f}")
+        #                 st.info(f"Speech detected: {self.audio_processor.speech_detected}")
+        #                 st.info(f"Consecutive silence frames: {self.audio_processor.consecutive_silence_frames}")
                         
-                        if self.audio_processor.last_audio_level > adaptive_threshold:
-                            st.success("✅ Currently detecting speech")
-                        else:
-                            st.warning("🔇 Currently detecting silence")
-                    else:
-                        st.warning("⚠️ Need more volume history for adaptive threshold")
-                else:
-                    st.error("Audio processor not recording")
+        #                 if self.audio_processor.last_audio_level > adaptive_threshold:
+        #                     st.success("✅ Currently detecting speech")
+        #                 else:
+        #                     st.warning("🔇 Currently detecting silence")
+        #             else:
+        #                 st.warning("⚠️ Need more volume history for adaptive threshold")
+        #         else:
+        #             st.error("Audio processor not recording")
             
-            if st.button("Test Transcription Pipeline"):
-                if self.audio_processor and self.groq_api_key:
-                    # Create a simple test audio with speech-like content
-                    import numpy as np
-                    import io
-                    import wave
+        #     if st.button("Test Transcription Pipeline"):
+        #         if self.audio_processor and self.groq_api_key:
+        #             # Create a simple test audio with speech-like content
+        #             import numpy as np
+        #             import io
+        #             import wave
                     
-                    # Create a simple sine wave that sounds like "hello"
-                    sample_rate = 16000
-                    duration = 2  # 2 seconds
-                    t = np.linspace(0, duration, int(sample_rate * duration))
+        #             # Create a simple sine wave that sounds like "hello"
+        #             sample_rate = 16000
+        #             duration = 2  # 2 seconds
+        #             t = np.linspace(0, duration, int(sample_rate * duration))
                     
-                    # Create a more complex waveform that might be transcribed
-                    audio_data = (np.sin(2 * np.pi * 440 * t) * 0.1 +  # A4
-                                np.sin(2 * np.pi * 880 * t) * 0.05 +   # A5
-                                np.sin(2 * np.pi * 220 * t) * 0.05)    # A3
+        #             # Create a more complex waveform that might be transcribed
+        #             audio_data = (np.sin(2 * np.pi * 440 * t) * 0.1 +  # A4
+        #                         np.sin(2 * np.pi * 880 * t) * 0.05 +   # A5
+        #                         np.sin(2 * np.pi * 220 * t) * 0.05)    # A3
                     
-                    # Convert to int16
-                    audio_int16 = (audio_data * 32767).astype(np.int16)
+        #             # Convert to int16
+        #             audio_int16 = (audio_data * 32767).astype(np.int16)
                     
-                    # Create WAV bytes
-                    wav_buffer = io.BytesIO()
-                    with wave.open(wav_buffer, 'wb') as wav_file:
-                        wav_file.setnchannels(1)
-                        wav_file.setsampwidth(2)
-                        wav_file.setframerate(sample_rate)
-                        wav_file.writeframes(audio_int16.tobytes())
+        #             # Create WAV bytes
+        #             wav_buffer = io.BytesIO()
+        #             with wave.open(wav_buffer, 'wb') as wav_file:
+        #                 wav_file.setnchannels(1)
+        #                 wav_file.setsampwidth(2)
+        #                 wav_file.setframerate(sample_rate)
+        #                 wav_file.writeframes(audio_int16.tobytes())
                     
-                    wav_buffer.seek(0)
-                    wav_bytes = wav_buffer.read()
+        #             wav_buffer.seek(0)
+        #             wav_bytes = wav_buffer.read()
                     
-                    st.info("Testing transcription pipeline...")
-                    transcription = self.audio_processor._transcribe_with_groq(wav_bytes)
-                    if transcription:
-                        st.success(f"✅ Test transcription successful: {transcription}")
-                    else:
-                        st.error("❌ Test transcription failed")
-                else:
-                    st.error("Audio processor or API key not available")
+        #             st.info("Testing transcription pipeline...")
+        #             transcription = self.audio_processor._transcribe_with_groq(wav_bytes)
+        #             if transcription:
+        #                 st.success(f"✅ Test transcription successful: {transcription}")
+        #             else:
+        #                 st.error("❌ Test transcription failed")
+        #         else:
+        #             st.error("Audio processor or API key not available")
         
-        # Control buttons
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.session_state.rtc_is_recording:
-                if st.button("⏹️ Stop Recording"):
-                    st.session_state.rtc_is_recording = False
-                    if self.audio_processor:
-                        self.audio_processor.stop_recording()
-                    st.rerun()
-            else:
-                if st.button("🎤 Start Recording"):
-                    st.session_state.rtc_is_recording = True
-                    if self.audio_processor:
-                        self.audio_processor.start_recording()
-                    st.rerun()
-        
-        with col2:
-            if st.button("🗑️ Clear All"):
-                st.session_state.rtc_transcriptions = []
-                st.session_state['user_input'] = ""
-                st.rerun()
         
         # WebRTC streamer - only create when recording is active
         if st.session_state.rtc_is_recording:
@@ -840,7 +821,6 @@ class RealTimeVoiceInterface:
             )
         else:
             # Show placeholder when not recording
-            st.info("🎤 Click 'Start Recording' to begin voice input")
             self.webrtc_ctx = None
         
         # Show WebRTC status

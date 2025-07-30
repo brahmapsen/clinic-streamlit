@@ -15,7 +15,7 @@ AGENT_API_URL = os.getenv("AGENT_API_URL")
 # Add import for streamlit-agraph at the top
 from streamlit_agraph import agraph, Node, Edge, Config
 # from st_audiorec import st_audiorec
-from simple_voice_handler import SimpleVoiceRecorder
+from rtc_audio_handler import RealTimeVoiceInterface
 
 # Configure Streamlit page for mobile-like experience
 st.set_page_config(
@@ -515,7 +515,7 @@ with tab2:
             user_message = "Can you give me nutrition advice based on my profile?"
 
     # --- Toggle between Text and Voice Input ---
-    mode = st.radio("Choose input mode:", ["Text", "Voice Recording"], horizontal=True)
+    mode = st.radio("Choose input mode:", ["Text", "Real-time Voice"], horizontal=True)
     user_message = ""
     
     if mode == "Text":
@@ -525,16 +525,47 @@ with tab2:
             height=100,
             key="user_input"
         )
-    else:  # Voice Recording mode
-        # Initialize simple voice recorder
-        if 'voice_recorder' not in st.session_state:
-            st.session_state.voice_recorder = SimpleVoiceRecorder(GROQ_API_KEY)
+    else:  # Real-time Voice mode
+        # Initialize real-time voice interface
+        if 'rtc_voice_interface' not in st.session_state:
+            st.session_state.rtc_voice_interface = RealTimeVoiceInterface(GROQ_API_KEY)
+
+        st.session_state.rtc_is_recording = True
+
+        # Initialize recording state when Real-time Voice is selected --BRAHMA--BPS
+        # if 'rtc_is_recording' not in st.session_state:
+        #     st.session_state.rtc_is_recording = False
         
-        # Render the simple voice interface
-        transcribed_text = st.session_state.voice_recorder.render_voice_interface()
+        # Control buttons - show immediately
+        col1, col2 = st.columns(2)
         
-        # Get the transcribed text from session state (set by voice recorder)
-        user_message = st.session_state.get('user_input', '')
+        with col1:
+            if st.session_state.rtc_is_recording:
+                if st.button("⏹️ Stop Recording", key="main_stop_btn"):
+                    st.session_state.rtc_is_recording = False
+                    if st.session_state.rtc_voice_interface.audio_processor:
+                        st.session_state.rtc_voice_interface.audio_processor.stop_recording()
+                    st.rerun()
+            else:
+                if st.button("🎤 Start Recording", key="main_start_btn", type="primary"):
+                    st.session_state.rtc_is_recording = True
+                    # Initialize audio processor if needed
+                    if st.session_state.rtc_voice_interface.audio_processor is None:
+                        st.session_state.rtc_voice_interface._initialize_audio_processor()
+                    if st.session_state.rtc_voice_interface.audio_processor:
+                        st.session_state.rtc_voice_interface.audio_processor.start_recording()
+                    st.rerun()
+        
+        with col2:
+            if st.button("🗑️ Clear All", key="main_clear_btn"):
+                if 'rtc_transcriptions' in st.session_state:
+                    st.session_state.rtc_transcriptions = []
+                if 'user_input' in st.session_state:
+                    st.session_state['user_input'] = ""
+                st.rerun()
+        
+        # Render the voice interface (this will handle WebRTC and transcription display)
+        user_message = st.session_state.rtc_voice_interface.render_interface()
         
         # Show current input status
         if user_message and user_message.strip():
@@ -560,7 +591,7 @@ with tab2:
                 """, unsafe_allow_html=True)
 
     # Show Text-To-Speech(TTS) for last assistant response in Voice modes
-    if mode in ["Voice Recording"] and st.session_state.chat_history:
+    if mode in [ "Real-time Voice"] and st.session_state.chat_history:
         # Find the last assistant message
         last_assistant = next((m for m in reversed(st.session_state.chat_history) if m['role'] == 'assistant'), None)
         if last_assistant and isinstance(last_assistant['content'], str):

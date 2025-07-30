@@ -1,12 +1,14 @@
-# Streamlit frontend requirements
-streamlit
+# Core Streamlit dependencies
+streamlit>=1.23.0
+streamlit-agraph
+
+# Voice recording dependencies (using built-in st.audio_input)
+SpeechRecognition
+pyaudio
+
+# API and HTTP requests
 requests
 python-dotenv
-pydantic
-streamlit-agraph
-streamlit-webrtc
-aiortc
-av
-numpy
-scipy
-webrtcvad
+
+# Audio processing
+pydub

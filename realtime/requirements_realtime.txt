@@ -1,0 +1,12 @@
+# Streamlit frontend requirements
+streamlit
+requests
+python-dotenv
+pydantic
+streamlit-agraph
+streamlit-webrtc
+aiortc
+av
+numpy
+scipy
+webrtcvad
