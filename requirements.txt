@@ -4,4 +4,9 @@ requests
 python-dotenv
 pydantic
 streamlit-agraph
-streamlit-audiorec
+streamlit-webrtc
+aiortc
+av
+numpy
+scipy
+webrtcvad

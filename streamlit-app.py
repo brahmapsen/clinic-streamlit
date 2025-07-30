@@ -14,7 +14,8 @@ AGENT_API_URL = os.getenv("AGENT_API_URL")
 
 # Add import for streamlit-agraph at the top
 from streamlit_agraph import agraph, Node, Edge, Config
-from st_audiorec import st_audiorec
+# from st_audiorec import st_audiorec
+from rtc_audio_handler import RealTimeVoiceInterface
 
 # Configure Streamlit page for mobile-like experience
 st.set_page_config(
@@ -221,6 +222,50 @@ st.markdown("""
         font-weight: 600 !important;
         line-height: 1.2 !important;
     }
+    
+    /* Real-time voice interface styling */
+    .rtc-recording-active {
+        background: linear-gradient(90deg, #ff6b6b, #ee5a52);
+        color: white;
+        padding: 0.5rem;
+        border-radius: 8px;
+        text-align: center;
+        margin: 0.5rem 0;
+        animation: pulse 2s infinite;
+    }
+    
+    .rtc-recording-inactive {
+        background: #f8f9fa;
+        color: #666;
+        padding: 0.5rem;
+        border-radius: 8px;
+        text-align: center;
+        margin: 0.5rem 0;
+        border: 2px dashed #ddd;
+    }
+    
+    .rtc-transcription-box {
+        background: #e3f2fd;
+        border-left: 4px solid #2196f3;
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.9rem;
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.7; }
+        100% { opacity: 1; }
+    }
+    
+    /* WebRTC component styling */
+    .stWebRtc {
+        border-radius: 8px;
+        overflow: hidden;
+        margin: 0.5rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -240,6 +285,10 @@ if 'chat_history' not in st.session_state:
 
 if 'api_url' not in st.session_state:
     st.session_state.api_url = AGENT_API_URL 
+
+# Add persistent user_id for conversation continuity
+if 'user_id' not in st.session_state:
+    st.session_state.user_id = f"user_{str(uuid.uuid4())[:8]}"
 
 # Add new tab for advanced tools
 if 'advanced_tab' not in st.session_state:
@@ -360,8 +409,18 @@ with tab1:
     # Add profile sync button in Dashboard tab
     if st.button("🔄 Save Profile"):
         try:
+            # Update session state with current form values
+            st.session_state.user_profile.update({
+                'age': int(age) if age.isdigit() else st.session_state.user_profile['age'],
+                'gender': gender,
+                'height': int(height) if height.isdigit() else st.session_state.user_profile['height'],
+                'weight': int(weight) if weight.isdigit() else st.session_state.user_profile['weight'],
+                'systolic_bp': int(systolic_bp) if systolic_bp.isdigit() else st.session_state.user_profile['systolic_bp'],
+                'diastolic_bp': int(diastolic_bp) if diastolic_bp.isdigit() else st.session_state.user_profile['diastolic_bp']
+            })
+            
             profile_payload = {
-                "user_id": f"user_{str(uuid.uuid4())[:8]}",
+                "user_id": st.session_state.user_id,
                 **st.session_state.user_profile
             }
             resp = requests.post(f"{st.session_state.api_url}/update_profile", json=profile_payload)
@@ -414,7 +473,6 @@ def transcribe_audio_with_groq(audio_to_use, audio_label, audio_file=None):
     audio_label: 'Recorded audio' or 'Uploaded audio'
     audio_file: the uploaded file (needed for Uploaded audio)
     """
-    # groq_api_key = os.getenv("GROQ_API_KEY")
     if audio_label == "Recorded audio":
         files = {"file": audio_to_use}
     else:
@@ -441,9 +499,25 @@ with tab2:
     # st.markdown('<div class="tab-content">', unsafe_allow_html=True)
     st.markdown("### 💬 Ask Your Health Question")
 
+    # Quick question buttons in one row
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("🤒 Fever & Symptoms"):
+            user_message = "I have a fever and feeling unwell. What should I do?"
+    with col2:
+        if st.button("💊 Medication Help"):
+            user_message = "I need help understanding my medication dosage."
+    with col3:
+        if st.button("🏃‍♂️ Exercise Advice"):
+            user_message = "What exercises are safe for my current health condition?"
+    with col4:
+        if st.button("🍎 Nutrition Tips"):
+            user_message = "Can you give me nutrition advice based on my profile?"
+
     # --- Toggle between Text and Voice Input ---
-    mode = st.radio("Choose input mode:", ["Text", "Voice"], horizontal=True)
+    mode = st.radio("Choose input mode:", ["Text", "Real-time Voice"], horizontal=True)
     user_message = ""
+    
     if mode == "Text":
         user_message = st.text_area(
             "Type your health question here:",
@@ -451,50 +525,18 @@ with tab2:
             height=100,
             key="user_input"
         )
-    else:
-        st.markdown("#### 🎤 Record or Upload your question as audio")
-        col_rec, col_up = st.columns(2)
-        with col_rec:
-            st.markdown("**Option 1: Record in browser**")
-            audio_bytes = st_audiorec()
-        with col_up:
-            st.markdown("**Option 2: Upload audio file**")
-            audio_file = st.file_uploader(
-                "Upload an audio file (wav, mp3, m4a, ogg, flac, etc.)",
-                type=["wav", "mp3", "m4a", "ogg", "flac"],
-                key="voice_audio_file"
-            )
-        # Determine which audio to use (prefer recording)
-        audio_to_use = None
-        audio_label = None
-        if audio_bytes:
-            audio_to_use = ("recording.wav", audio_bytes, "audio/wav")
-            audio_label = "Recorded audio"
-        elif audio_file is not None:
-            audio_to_use = audio_file
-            audio_label = "Uploaded audio"
-        transcribed_text = st.session_state.get("user_input", "")
-        if audio_to_use:
-            st.markdown(f"**{audio_label} ready for transcription.")
-            # Show the audio player ONLY here, not immediately after upload/record
-            # if audio_label == "Recorded audio":
-            #     st.audio(audio_bytes, format="audio/wav")
-            # else:
-            #     st.audio(audio_file)
-            if st.button("Transcribe Audio"):
-                with st.spinner("Transcribing..."):
-                    transcribed_text, transcribe_error = transcribe_audio_with_groq(audio_to_use, audio_label, audio_file)
-                    if transcribed_text:
-                        st.success("Transcription complete!")
-                        st.write(transcribed_text)
-                        st.session_state["user_input"] = transcribed_text
-                        user_message = transcribed_text
-                    else:
-                        st.error(transcribe_error)
-        # If user already transcribed, use that as input
-        user_message = st.session_state.get("user_input", "")
+    else:  # Real-time Voice mode
+        # Initialize real-time voice interface
+        if 'rtc_voice_interface' not in st.session_state:
+            st.session_state.rtc_voice_interface = RealTimeVoiceInterface(GROQ_API_KEY)
+        
+        # Render real-time voice interface
+        user_message = st.session_state.rtc_voice_interface.render_interface()
+        
+        # Show current input status
+        if user_message and user_message.strip():
+            st.success(f"✅ Voice input ready: {len(user_message.split())} words captured")
 
-    
     # Chat Interface
     # st.markdown("#### 💭 Chat with Health Assistant")
     
@@ -514,8 +556,8 @@ with tab2:
                 </div>
                 """, unsafe_allow_html=True)
 
-    # Only in Voice mode, show Text-To-Speech(TTS) for last assistant response
-    if mode == "Voice" and st.session_state.chat_history:
+    # Show Text-To-Speech(TTS) for last assistant response in Voice modes
+    if mode in [ "Real-time Voice"] and st.session_state.chat_history:
         # Find the last assistant message
         last_assistant = next((m for m in reversed(st.session_state.chat_history) if m['role'] == 'assistant'), None)
         if last_assistant and isinstance(last_assistant['content'], str):
@@ -523,41 +565,18 @@ with tab2:
             sentences = re.split(r'(?<=[.!?]) +', last_assistant['content'])
             tts_text = ' '.join(sentences[:2]).strip()
             if tts_text:
-                if st.button("Play Response Audio"):
-                    audio_bytes, tts_error = get_tts_audio(tts_text, model_name="playai-tts")
-                    if audio_bytes:
-                        st.audio(audio_bytes, format="audio/wav")
-                    else:
-                        st.error(tts_error)
+                if st.button("🔊 Play Response Audio"):
+                    with st.spinner("Generating audio..."):
+                        audio_bytes, tts_error = get_tts_audio(tts_text, model_name="playai-tts")
+                        if audio_bytes:
+                            st.audio(audio_bytes, format="audio/wav")
+                            st.success("Audio ready!")
+                        else:
+                            st.error(tts_error)
     
-    # Message input
-    # user_message = st.text_area(
-    #     "Type your health question here:",
-    #     placeholder="e.g., I have been feeling tired and have a headache for the past 2 days. What should I do?",
-    #     height=100,
-    #     key="user_input"
-    # )
     
-    # Quick question buttons in one row
-    st.markdown("#### 🚀 Quick Questions")
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        if st.button("🤒 Fever & Symptoms"):
-            user_message = "I have a fever and feeling unwell. What should I do?"
-    with col2:
-        if st.button("💊 Medication Help"):
-            user_message = "I need help understanding my medication dosage."
-    with col3:
-        if st.button("🏃‍♂️ Exercise Advice"):
-            user_message = "What exercises are safe for my current health condition?"
-    with col4:
-        if st.button("🍎 Nutrition Tips"):
-            user_message = "Can you give me nutrition advice based on my profile?"
-
-    
-    # Send message button
-    if st.button("📤 Send Message", type="primary", disabled=not user_message.strip()):
+    # Send message button - always enabled
+    if st.button("📤 Send Message", type="primary"):
         if user_message.strip():
             # Add user message to chat
             st.session_state.chat_history.append({
@@ -565,10 +584,9 @@ with tab2:
                 'content': user_message
             })
             
-            # Prepare API request
-            user_id = f"user_{str(uuid.uuid4())[:8]}"
+            # Prepare API request - backend handles conversation history via user_id
             payload = {
-                "user_id": user_id,
+                "user_id": st.session_state.user_id,
                 "message": user_message,
                 "language": "en"
             }
@@ -635,7 +653,7 @@ with tab2:
     if st.button("Extract Symptoms"):
         if symptom_text.strip():
             try:
-                resp = requests.post(f"{st.session_state.api_url}/extract_symptoms", json={"user_id": "test", "message": symptom_text})
+                resp = requests.post(f"{st.session_state.api_url}/extract_symptoms", json={"user_id": st.session_state.user_id, "message": symptom_text})
                 if resp.status_code == 200:
                     symptoms = resp.json().get("symptoms", [])
                     st.success(f"Extracted Symptoms: {', '.join(symptoms)}")
@@ -652,9 +670,9 @@ with tab2:
                 # Try to parse as list, else treat as text
                 if ',' in clar_text:
                     symptoms = [s.strip() for s in clar_text.split(',') if s.strip()]
-                    payload = {"user_id": "test", "message": clar_text, "symptoms": symptoms}
+                    payload = {"user_id": st.session_state.user_id, "message": clar_text, "symptoms": symptoms}
                 else:
-                    payload = {"user_id": "test", "message": clar_text}
+                    payload = {"user_id": st.session_state.user_id, "message": clar_text}
                 resp = requests.post(f"{st.session_state.api_url}/clarifying_questions", json=payload)
                 if resp.status_code == 200:
                     questions = resp.json().get("questions", [])
