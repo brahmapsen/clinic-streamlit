@@ -13,7 +13,7 @@ COPY requirements-streamlit.txt .
 RUN pip install --no-cache-dir -r requirements-streamlit.txt
 
 # Copy Streamlit app
-COPY streamlit_ui.py .
+COPY my-clinic.py .
 COPY .env* ./
 
 # Expose Streamlit port
@@ -24,4 +24,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
 # Run Streamlit
-CMD ["streamlit", "run", "streamlit_ui.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "my-clinic.py", "--server.port=8501", "--server.address=0.0.0.0"]

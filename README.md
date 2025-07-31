@@ -9,9 +9,6 @@ clinic-agent.onrender.com
 source ./env/bin/activate
 pip install -r requirements.txt
 
-For sound enablement
-pip install git+https://github.com/stefanrmmr/streamlit_audio_recorder.git
-
 ## Run the streamlit app
-streamlit run streamlit-app.py
+streamlit run my-clinic.py
 
