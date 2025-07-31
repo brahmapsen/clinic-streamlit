@@ -4,7 +4,7 @@ streamlit-agraph
 
 # Voice recording dependencies (using built-in st.audio_input)
 SpeechRecognition
-pyaudio
+# pyaudio
 
 # API and HTTP requests
 requests
