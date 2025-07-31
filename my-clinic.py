@@ -16,6 +16,9 @@ AGENT_API_URL = os.getenv("AGENT_API_URL")
 from streamlit_agraph import agraph, Node, Edge, Config
 # from st_audiorec import st_audiorec
 from simple_voice_handler import SimpleVoiceRecorder
+from provider_finder import ProviderFinder
+from dashboard_handler import DashboardHandler
+from audio_utils import get_tts_audio, transcribe_audio_with_groq
 
 # Configure Streamlit page for mobile-like experience
 st.set_page_config(
@@ -306,192 +309,23 @@ compact_header = """
 st.markdown(compact_header, unsafe_allow_html=True)
 
 # Now define the tabs (remove header from inside each tab)
-tab1, tab2, tab3 = st.tabs(["📊 **Dashboard**", "💬 **Ask**", "🏥 **Find a Clinic**"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 **Dashboard**", "💬 **Ask**", "🏥 **Find a Clinic**", "👨‍⚕️ **Providers**"])
 
 # Dashboard Tab
 with tab1:
-    # st.markdown('<div class="tab-content">', unsafe_allow_html=True)
-    st.markdown("#### Personal Info")
-
-    # Four fields in one row, each 1/4 width
-    age_col, gender_col, height_col, weight_col = st.columns(4)
-    with age_col:
-        age = st.text_input(
-            "Age", 
-            value=str(st.session_state.user_profile['age']),
-            key="profile_age",
-            placeholder="25"
-        )
-    with gender_col:
-        gender = st.selectbox(
-            "Gender", 
-            options=["Male", "Female", "Other"],
-            index=["Male", "Female", "Other"].index(st.session_state.user_profile['gender']),
-            key="profile_gender"
-        )
-    with height_col:
-        height = st.text_input(
-            "Height (cm)", 
-            value=str(st.session_state.user_profile['height']),
-            key="profile_height",
-            placeholder="170"
-        )
-    with weight_col:
-        weight = st.text_input(
-            "Weight (kg)", 
-            value=str(st.session_state.user_profile['weight']),
-            key="profile_weight",
-            placeholder="70"
-        )
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="tab-content">', unsafe_allow_html=True)
     
-    # Vitals Section
-    st.markdown('<div class="profile-card">', unsafe_allow_html=True)
-    st.markdown("#### Vitals")
-    # Four fields in one row: Systolic, Diastolic, BMI, Status
-    sys_col, dias_col, bmi_col, status_col = st.columns(4)
-    with sys_col:
-        st.markdown("Systolic")
-        systolic_bp = st.text_input(
-            "Systolic", 
-            value=str(st.session_state.user_profile['systolic_bp']),
-            key="profile_systolic",
-            placeholder="120",
-            label_visibility="collapsed"
-        )
-    with dias_col:
-        st.markdown("Diastolic")
-        diastolic_bp = st.text_input(
-            "Diastolic", 
-            value=str(st.session_state.user_profile['diastolic_bp']),
-            key="profile_diastolic",
-            placeholder="80",
-            label_visibility="collapsed"
-        )
-    with bmi_col:
-        st.markdown("BMI")
-        try:
-            height_val = float(height) if height else 170
-            weight_val = float(weight) if weight else 70
-            height_m = height_val / 100
-            bmi = weight_val / (height_m ** 2)
-            bmi_display = f"{bmi:.1f}"
-        except (ValueError, ZeroDivisionError):
-            bmi_display = "-"
-        st.markdown(f"<div style='text-align:center;font-weight:bold;font-size:1.1em'>{bmi_display}</div>", unsafe_allow_html=True)
-    with status_col:
-        st.markdown("Status")
-        try:
-            if bmi < 18.5:
-                bmi_status = "Underweight"
-                bmi_color = "🔵"
-            elif bmi < 25:
-                bmi_status = "Normal"
-                bmi_color = "🟢"
-            elif bmi < 30:
-                bmi_status = "Overweight"
-                bmi_color = "🟡"
-            else:
-                bmi_status = "Obese"
-                bmi_color = "🔴"
-            st.markdown(f"<div style='text-align:center;font-weight:bold;font-size:1.1em'>{bmi_color} {bmi_status}</div>", unsafe_allow_html=True)
-        except:
-            st.markdown("<div style='text-align:center;'>-</div>", unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Initialize dashboard handler
+    if 'dashboard_handler' not in st.session_state:
+        st.session_state.dashboard_handler = DashboardHandler(api_url=st.session_state.api_url)
     
-    # Alerts & Notifications Section
-    st.markdown("### 🔔 Alerts & Notifications")
-    st.markdown('<div class="alert-card">', unsafe_allow_html=True)
-    st.info("📱 No new alerts at this time. Check back later for health reminders and updates.")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Update API URL if it changed
+    st.session_state.dashboard_handler.api_url = st.session_state.api_url
     
-
-    # Add profile sync button in Dashboard tab
-    if st.button("🔄 Save Profile"):
-        try:
-            # Update session state with current form values
-            st.session_state.user_profile.update({
-                'age': int(age) if age.isdigit() else st.session_state.user_profile['age'],
-                'gender': gender,
-                'height': int(height) if height.isdigit() else st.session_state.user_profile['height'],
-                'weight': int(weight) if weight.isdigit() else st.session_state.user_profile['weight'],
-                'systolic_bp': int(systolic_bp) if systolic_bp.isdigit() else st.session_state.user_profile['systolic_bp'],
-                'diastolic_bp': int(diastolic_bp) if diastolic_bp.isdigit() else st.session_state.user_profile['diastolic_bp']
-            })
-            
-            profile_payload = {
-                "user_id": st.session_state.user_id,
-                **st.session_state.user_profile
-            }
-            resp = requests.post(f"{st.session_state.api_url}/update_profile", json=profile_payload)
-            if resp.status_code == 200:
-                st.success("Profile synced with backend!")
-            else:
-                st.error(f"Error syncing profile: {resp.text}")
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-
-    # Knowledge Graph Section
-    st.markdown('### 🧠 Profile Knowledge Graph')
-    profile = st.session_state.user_profile
-    nodes = [Node(id="user", label="User", size=30, color="blue")]
-    edges = []
-    for k, v in profile.items():
-        nodes.append(Node(id=k, label=f"{k}: {v}", size=20, color="green"))
-        edges.append(Edge(source="user", target=k))
-    config = Config(width=400, height=300, directed=False, nodeHighlightBehavior=True, highlightColor="#F7A7A6", collapsible=True)
-    agraph(nodes=nodes, edges=edges, config=config)
-
-
-def get_tts_audio(text, model_name="playai-tts", voice="Fritz-PlayAI", response_format="wav"):
-    """
-    Calls the Groq TTS API to synthesize speech from text.
-    Returns (audio_bytes, error_message). If successful, error_message is None.
-    """
-    # groq_api_key = os.getenv("GROQ_API_KEY")
-    data = {
-        "model": model_name,
-        "input": text,
-        "voice": voice,
-        "response_format": response_format
-    }
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-    response = requests.post(
-        "https://api.groq.com/openai/v1/audio/speech",
-        json=data,
-        headers=headers
-    )
-    if response.status_code == 200:
-        return response.content, None
-    else:
-        return None, f"TTS failed: {response.text}"
-
-def transcribe_audio_with_groq(audio_to_use, audio_label, audio_file=None):
-    """
-    Calls the Groq Speech-to-Text API and returns the transcribed text or error.
-    audio_to_use: tuple for recorded audio or file-like for uploaded audio
-    audio_label: 'Recorded audio' or 'Uploaded audio'
-    audio_file: the uploaded file (needed for Uploaded audio)
-    """
-    if audio_label == "Recorded audio":
-        files = {"file": audio_to_use}
-    else:
-        files = {"file": audio_file}
-    data = {
-        "model": "whisper-large-v3-turbo",
-        "response_format": "text"
-    }
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-    response = requests.post(
-        "https://api.groq.com/openai/v1/audio/transcriptions",
-        files=files,
-        data=data,
-        headers=headers
-    )
-    if response.status_code == 200:
-        return response.text, None
-    else:
-        return None, f"Transcription failed: {response.text}"
+    # Render the dashboard tab
+    st.session_state.dashboard_handler.render_dashboard_tab()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # Ask Tab
 with tab2:
@@ -751,5 +585,18 @@ with tab3:
     
     # Placeholder for future functionality
     st.info("🚧 **Coming Soon:** Interactive clinic finder with maps, reviews, and appointment booking!")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Provider Tab
+with tab4:
+    st.markdown('<div class="tab-content">', unsafe_allow_html=True)
+    
+    # Initialize provider finder
+    if 'provider_finder' not in st.session_state:
+        st.session_state.provider_finder = ProviderFinder()
+    
+    # Render the provider tab
+    st.session_state.provider_finder.render_provider_tab()
     
     st.markdown('</div>', unsafe_allow_html=True)
